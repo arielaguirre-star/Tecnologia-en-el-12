@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Panel de Administración - Tecnología 12</title>
+    <title>Panel Docente - Tecnología 12</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen p-4 md:p-8 font-sans">
 
     <!-- 1. FORMULARIO DE LOGIN -->
     <div id="seccion-login" class="max-w-md mx-auto my-12 bg-slate-900 p-6 rounded-xl border border-slate-800 shadow-xl">
-        <h2 class="text-2xl font-bold text-center text-cyan-400 mb-6">Iniciar Sesión Admin</h2>
+        <h2 class="text-2xl font-bold text-center text-cyan-400 mb-6">Iniciar Sesión Docente</h2>
         <form id="form-login" class="space-y-4">
             <div>
                 <label class="block text-sm font-medium text-slate-300 mb-1">Correo Electrónico</label>
@@ -31,7 +31,7 @@
     <div id="seccion-panel" class="max-w-4xl mx-auto hidden">
         <header class="flex justify-between items-center mb-8 border-b border-slate-800 pb-4">
             <div>
-                <h1 class="text-2xl md:text-3xl font-bold text-cyan-400">Panel de Administración</h1>
+                <h1 class="text-2xl md:text-3xl font-bold text-cyan-400">Panel Docente</h1>
                 <p class="text-slate-400 text-sm">Sesión: <span id="user-email" class="text-cyan-300"></span></p>
             </div>
             <div class="flex gap-2">
@@ -65,7 +65,7 @@
                     <div>
                         <label class="block text-sm font-medium text-slate-300 mb-1">Tipo de Contenido</label>
                         <select id="select-tipo" class="w-full bg-slate-800 border border-slate-700 rounded p-2.5 text-slate-100 focus:outline-none focus:border-cyan-500">
-                            <option value="imagen">Imágenes (ImgBB)</option>
+                            <option value="imagen">Imágenes (Vercel Proxy)</option>
                             <option value="video">Video (YouTube)</option>
                         </select>
                     </div>
@@ -77,7 +77,7 @@
                 </div>
 
                 <div id="campo-imagen">
-                    <label class="block text-sm font-medium text-slate-300 mb-1">Seleccionar Imagen(es)</label>
+                    <label class="block text-sm font-medium text-slate-300 mb-1">Seleccionar Imagen(es) <span class="text-xs text-cyan-400 font-normal">(Máx. 4.4 MB por foto)</span></label>
                     <input type="file" id="input-archivo" accept="image/*" multiple class="w-full bg-slate-800 border border-slate-700 rounded p-2 text-slate-300 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-cyan-600 file:text-white hover:file:bg-cyan-500">
                 </div>
 
@@ -92,7 +92,7 @@
             </form>
         </section>
 
-        <!-- LISTA CON VISTA PREVIA DE IMÁGENES -->
+        <!-- LISTA DE GESTIÓN -->
         <section class="bg-slate-900 p-6 rounded-xl border border-slate-800 shadow-xl">
             <h2 class="text-xl font-bold mb-4 text-slate-200">Proyectos Publicados</h2>
             <div id="lista-gestion" class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -106,7 +106,10 @@
         import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
         import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-        
+        // URL del Endpoint en Vercel. Si este HTML se ejecuta hospedado dentro de Vercel, basta utilizar '/api/upload'.
+        // Si el HTML se ejecuta hospedado en GitHub Pages, debes sustituir la constante con el dominio de Vercel
+        // (Ejemplo: "https://tu-proyecto.vercel.app/api/upload").
+        const VERCEL_UPLOAD_ENDPOINT = "/api/upload";
 
         const firebaseConfig = {
             apiKey: "AIzaSyAL4AqHuOKmo2YT7VTxwii1zyDS-8YDE98",
@@ -189,6 +192,31 @@
 
         const esperar = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+        // Subida segura mediante el Backend de Vercel
+        async function subirImagenServidor(archivo) {
+            // Validar límite de 4.4 MB en frontend antes de enviar la petición a la Serverless Function
+            const LIMITE_BYTES = 4.4 * 1024 * 1024;
+            if (archivo.size > LIMITE_BYTES) {
+                throw new Error(`El archivo "${archivo.name}" pesa ${(archivo.size / (1024 * 1024)).toFixed(2)} MB y excede el límite máximo permitido por Vercel (4.5 MB).`);
+            }
+
+            const formData = new FormData();
+            formData.append("image", archivo);
+
+            const res = await fetch(VERCEL_UPLOAD_ENDPOINT, {
+                method: "POST",
+                body: formData
+            });
+
+            const data = await res.json();
+
+            if (!res.ok || !data.success) {
+                throw new Error(data.error || "Fallo en el servidor al procesar la imagen.");
+            }
+
+            return data.url;
+        }
+
         document.getElementById("form-proyecto").addEventListener("submit", async (e) => {
             e.preventDefault();
 
@@ -216,23 +244,9 @@
 
                     for (let i = 0; i < archivos.length; i++) {
                         const archivo = archivos[i];
-                        btnSubir.textContent = `Subiendo foto ${i + 1} de ${archivos.length}...`;
+                        btnSubir.textContent = `Procesando foto ${i + 1} de ${archivos.length}...`;
 
-                        const formData = new FormData();
-                        formData.append("image", archivo);
-
-                        const res = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
-                            method: "POST",
-                            body: formData
-                        });
-
-                        const data = await res.json();
-
-                        if (!res.ok || !data.data || !data.data.url) {
-                            throw new Error(`ImgBB no aceptó la imagen "${archivo.name}".`);
-                        }
-
-                        const urlImagen = data.data.url;
+                        const urlImagen = await subirImagenServidor(archivo);
                         const tituloFinal = archivos.length > 1 ? `${titulo} (${i + 1})` : titulo;
 
                         await addDoc(collection(db, "proyectos_tecno"), {
@@ -245,7 +259,7 @@
                         });
 
                         subidasConExito++;
-                        if (i < archivos.length - 1) await esperar(500);
+                        if (i < archivos.length - 1) await esperar(300);
                     }
 
                     alert(`¡Se publicaron exitosamente las ${subidasConExito} imágenes!`);
@@ -279,14 +293,13 @@
 
             } catch (error) {
                 console.error("Error al publicar:", error);
-                alert("Ocurrió un error durante la publicación: " + error.message);
+                alert("Ocurrió un error: " + error.message);
             } finally {
                 btnSubir.disabled = false;
                 btnSubir.textContent = "Publicar Proyecto";
             }
         });
 
-        // --- CARGA DE PUBLICACIONES CON TARJETAS Y VISTA PREVIA ---
         async function cargarPublicaciones() {
             const contenedor = document.getElementById("lista-gestion");
             contenedor.innerHTML = `<p class="col-span-full text-slate-500 text-center py-4">Cargando...</p>`;
@@ -313,7 +326,7 @@
                         miniatura = `<img src="${data.urlMedia}" alt="${sanitizar(data.titulo)}" class="w-20 h-20 object-cover rounded border border-slate-700 flex-shrink-0">`;
                     } else {
                         miniatura = `
-                            <div class="w-20 h-20 bg-slate-950 rounded border border-slate-700 flex items-center justify-center flex-shrink-0 text-red-500">
+                            <div class="w-20 h-20 bg-slate-950 rounded border border-slate-700 flex items-center justify-center flex-shrink-0 text-red-500 font-bold text-xs">
                                 ▶ Video
                             </div>`;
                     }
@@ -340,13 +353,12 @@
         window.eliminarProyecto = async (id) => {
             if (confirm("¿Estás seguro de que deseas eliminar este proyecto?")) {
                 try {
+                    await deleteDoc(doc(docSnap => docSnap.id, db, "proyectos_tecno", id));
+                } catch (e) {
                     await deleteDoc(doc(db, "proyectos_tecno", id));
-                    alert("Proyecto eliminado.");
-                    cargarPublicaciones();
-                } catch (error) {
-                    console.error("Error al eliminar:", error);
-                    alert("No se pudo eliminar el proyecto.");
                 }
+                alert("Proyecto eliminado.");
+                cargarPublicaciones();
             }
         };
     </script>
